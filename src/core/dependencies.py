@@ -14,6 +14,7 @@ from src.infrastructure.graph_db import GraphDatabaseClient
 from src.infrastructure.vector_db import VectorDatabaseClient
 from src.infrastructure.relational_db import RelationalDatabaseClient
 from src.infrastructure.embedding_client import EmbeddingClient
+from src.infrastructure.groq_client import GroqClient
 
 
 @lru_cache
@@ -34,3 +35,8 @@ def get_relational_db() -> RelationalDatabaseClient:
 @lru_cache
 def get_embedding_client() -> EmbeddingClient:
     return EmbeddingClient(get_settings())
+
+
+@lru_cache
+def get_groq_client() -> GroqClient:
+    return GroqClient(get_settings())
