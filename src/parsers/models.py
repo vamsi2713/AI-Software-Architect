@@ -17,7 +17,7 @@ class ParsedFunction:
     line_number: int
     docstring: str | None = None
     parameters: list[str] = field(default_factory=list)
-
+    calls: list[str] = field(default_factory=list)  # names of functions/methods called in this function's body
 
 @dataclass
 class ParsedClass:

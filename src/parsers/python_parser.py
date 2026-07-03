@@ -72,4 +72,24 @@ class PythonParser:
             line_number=node.lineno,
             docstring=ast.get_docstring(node),
             parameters=parameters,
+            calls=self._extract_calls(node),
         )
+    
+    def _extract_calls(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]:
+        """
+        Walks a function's body and collects the names of every function
+        or method called inside it. We use ast.walk() here (not
+        iter_child_nodes) because calls can be nested arbitrarily deep -
+        inside if-blocks, loops, comprehensions, etc. - and we want all
+        of them, not just the top level.
+        """
+        calls = []
+        for child in ast.walk(node):
+            if isinstance(child, ast.Call):
+                if isinstance(child.func, ast.Name):
+                    # direct call, e.g. helper()
+                    calls.append(child.func.id)
+                elif isinstance(child.func, ast.Attribute):
+                    # method call, e.g. self.helper() or obj.method()
+                    calls.append(child.func.attr)
+        return calls

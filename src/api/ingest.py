@@ -26,37 +26,51 @@ router = APIRouter(prefix="/ingest", tags=["ingest"])
 
 @router.post("")
 def ingest_repository(
-    repo_path: str,
-    graph_db: GraphDatabaseClient = Depends(get_graph_db),
-    vector_db: VectorDatabaseClient = Depends(get_vector_db),
-    embedding_client: EmbeddingClient = Depends(get_embedding_client),
-) -> dict:
-    try:
-        walker = RepositoryWalker(repo_path)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        repo_path: str,
+        graph_db: GraphDatabaseClient = Depends(get_graph_db),
+        vector_db: VectorDatabaseClient = Depends(get_vector_db),
+        embedding_client: EmbeddingClient = Depends(get_embedding_client),
+    ) -> dict:
+        try:
+            walker = RepositoryWalker(repo_path)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
 
-    parser = PythonParser()
-    converter = OKFConverter()
+        parser = PythonParser()
+        converter = OKFConverter()
 
-    total_nodes = 0
-    total_relationships = 0
-    files_processed = 0
-    embedding_failures = 0
+        all_nodes = []
+        all_relationships = []
+        all_pending_calls = []
+        files_processed = 0
+        embedding_failures = 0
 
-    for file_path in walker.find_python_files():
-        parsed = parser.parse_file(file_path)
-        if parsed is None:
-            continue
+        # First pass: parse and convert every file, but don't write yet -
+        # call resolution needs to see nodes from ALL files first, since a
+        # function in main.py might call a function defined in utils.py.
+        for file_path in walker.find_python_files():
+            parsed = parser.parse_file(file_path)
+            if parsed is None:
+                continue
 
-        nodes, relationships = converter.convert(parsed)
+            nodes, relationships, pending_calls = converter.convert(parsed)
+            all_nodes.extend(nodes)
+            all_relationships.extend(relationships)
+            all_pending_calls.extend(pending_calls)
+            files_processed += 1
 
-        # Write structure to the graph first - this succeeds even if
-        # embeddings later fail, so the graph is never left partially
-        # written because of an unrelated API hiccup.
-        graph_db.write_okf_nodes(nodes, relationships)
+        # Second pass: now that we've seen every function/method in the
+        # repo, resolve call names to actual node IDs.
+        name_lookup = converter.build_name_lookup(all_nodes)
+        call_relationships = converter.resolve_calls(all_pending_calls, name_lookup)
+        all_relationships.extend(call_relationships)
 
-        for node in nodes:
+        # Write structure to the graph - this succeeds even if embeddings
+        # later fail, so the graph is never left partially written because
+        # of an unrelated API hiccup.
+        graph_db.write_okf_nodes(all_nodes, all_relationships)
+
+        for node in all_nodes:
             try:
                 vector = embedding_client.embed_text(node.to_embedding_text())
                 vector_db.upsert_node(node.id, vector, node.to_graph_properties())
@@ -64,19 +78,15 @@ def ingest_repository(
                 embedding_failures += 1
                 logger.warning("Embedding failed for %s: %s", node.id, exc)
 
-        total_nodes += len(nodes)
-        total_relationships += len(relationships)
-        files_processed += 1
+        logger.info(
+            "Ingested %d files: %d nodes, %d relationships, %d embedding failures",
+            files_processed, len(all_nodes), len(all_relationships), embedding_failures,
+        )
 
-    logger.info(
-        "Ingested %d files: %d nodes, %d relationships, %d embedding failures",
-        files_processed, total_nodes, total_relationships, embedding_failures,
-    )
-
-    return {
-        "repo_path": repo_path,
-        "files_processed": files_processed,
-        "nodes_written": total_nodes,
-        "relationships_written": total_relationships,
-        "embedding_failures": embedding_failures,
-    }
+        return {
+            "repo_path": repo_path,
+            "files_processed": files_processed,
+            "nodes_written": len(all_nodes),
+            "relationships_written": len(all_relationships),
+            "embedding_failures": embedding_failures,
+        }
