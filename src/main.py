@@ -11,6 +11,7 @@ from src.core.config import get_settings
 from src.core.logging_config import configure_logging, get_logger
 from src.api.health import router as health_router
 from src.api.parse import router as parse_router
+from src.api.ingest import router as ingest_router
 
 configure_logging()
 logger = get_logger(__name__)
@@ -35,6 +36,7 @@ app = FastAPI(
 
 app.include_router(health_router)
 app.include_router(parse_router)
+app.include_router(ingest_router)
 
 
 @app.get("/")

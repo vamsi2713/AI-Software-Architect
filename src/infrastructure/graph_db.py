@@ -59,3 +59,31 @@ class GraphDatabaseClient:
         with self._driver.session() as session:
             result = session.run(query, parameters or {})
             return [record.data() for record in result]
+        
+    def write_okf_nodes(self, nodes: list, relationships: list) -> None:
+        """
+        Writes OKF nodes and relationships into Neo4j using MERGE (not
+        CREATE) - MERGE means re-running ingestion on the same repo
+        updates existing nodes instead of creating duplicates every time.
+        """
+        self.connect()
+        with self._driver.session() as session:
+            for node in nodes:
+                session.run(
+                    """
+                    MERGE (n:%s {id: $id})
+                    SET n.name = $name,
+                        n.file_path = $file_path,
+                        n.line_number = $line_number,
+                        n.docstring = $docstring
+                    """ % node.node_type.value,
+                    node.to_graph_properties(),
+                )
+            for rel in relationships:
+                session.run(
+                    """
+                    MATCH (a {id: $from_id}), (b {id: $to_id})
+                    MERGE (a)-[:%s]->(b)
+                    """ % rel.relationship_type,
+                    {"from_id": rel.from_id, "to_id": rel.to_id},
+                )
