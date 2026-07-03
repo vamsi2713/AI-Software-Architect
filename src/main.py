@@ -13,6 +13,7 @@ from src.api.health import router as health_router
 from src.api.parse import router as parse_router
 from src.api.ingest import router as ingest_router
 from src.api.query import router as query_router
+from src.api.impact import router as impact_router
 
 configure_logging()
 logger = get_logger(__name__)
@@ -39,6 +40,7 @@ app.include_router(health_router)
 app.include_router(parse_router)
 app.include_router(ingest_router)
 app.include_router(query_router)
+app.include_router(impact_router)
 
 
 @app.get("/")

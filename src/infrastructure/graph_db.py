@@ -108,3 +108,45 @@ class GraphDatabaseClient:
                 {"node_id": node_id},
             )
             return [record.data() for record in result]
+
+    def find_nodes_by_name(self, name: str) -> list[dict]:
+        """
+        Looks up nodes by exact name match. Since OKF node IDs are full
+        file paths (verbose to type by hand), impact analysis is done
+        by name instead - but that means two functions with the same
+        name in different files will both match. Callers must handle
+        the case where this returns more than one result.
+        """
+        self.connect()
+        with self._driver.session(default_access_mode="READ") as session:
+            result = session.run(
+                "MATCH (n {name: $name}) RETURN n.id AS id, n.name AS name, n.file_path AS file_path",
+                {"name": name},
+            )
+            return [record.data() for record in result]
+
+    def get_impact_chain(self, node_id: str, max_depth: int = 5) -> list[dict]:
+        """
+        Finds everything that transitively CALLS this node - i.e.
+        everything that could be affected if this node's behavior
+        changes. Uses Neo4j's variable-length path syntax to walk
+        incoming CALLS edges up to max_depth hops, not just one hop
+        like get_related_nodes does.
+
+        length(p) tells us how many hops away each dependent is - a
+        direct caller is 1 hop, a caller-of-a-caller is 2 hops, etc.
+        This distinction matters: a 1-hop dependent breaks immediately,
+        a 5-hop dependent is affected only indirectly.
+        """
+        self.connect()
+        with self._driver.session(default_access_mode="READ") as session:
+            result = session.run(
+                f"""
+                MATCH p = (dependent)-[:CALLS*1..{max_depth}]->(target {{id: $node_id}})
+                RETURN DISTINCT dependent.id AS id, dependent.name AS name,
+                    dependent.file_path AS file_path, length(p) AS hops
+                ORDER BY hops
+                """,
+                {"node_id": node_id},
+            )
+            return [record.data() for record in result]
