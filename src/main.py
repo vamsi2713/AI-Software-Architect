@@ -14,6 +14,7 @@ from src.api.parse import router as parse_router
 from src.api.ingest import router as ingest_router
 from src.api.query import router as query_router
 from src.api.impact import router as impact_router
+from fastapi.middleware.cors import CORSMiddleware
 
 configure_logging()
 logger = get_logger(__name__)
@@ -34,6 +35,13 @@ app = FastAPI(
     "structure, dependencies, and documentation.",
     version="0.1.0",
     lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],  # Vite's default dev server port
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(health_router)
