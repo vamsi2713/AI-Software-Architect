@@ -56,7 +56,7 @@ class GraphDatabaseClient:
     def run_query(self, query: str, parameters: dict | None = None) -> list[dict]:
         """Agents in later milestones call this, not the raw driver."""
         self.connect()
-        with self._driver.session() as session:
+        with self._driver.session(default_access_mode="READ") as session:
             result = session.run(query, parameters or {})
             return [record.data() for record in result]
         
@@ -96,7 +96,7 @@ class GraphDatabaseClient:
         subgraphs for highly-connected nodes.
         """
         self.connect()
-        with self._driver.session() as session:
+        with self._driver.session(default_access_mode="READ") as session:
             result = session.run(
                 """
                 MATCH (start {id: $node_id})-[r]-(related)

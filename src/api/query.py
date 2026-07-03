@@ -56,8 +56,10 @@ def query_knowledge_graph(
         final_state = reasoning_graph.invoke({
             "question": question,
             "context": results,
+            "agent_type": "",
             "answer": "",
         })
         response["answer"] = final_state["answer"]
+        response["agent_used"] = final_state["agent_type"]
 
     return response
