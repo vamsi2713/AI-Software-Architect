@@ -30,12 +30,19 @@ class EmbeddingClient:
         genai.configure(api_key=self._settings.gemini_api_key)
         self._configured = True
 
-    def embed_text(self, text: str) -> list[float]:
+    def embed_text(self, text: str, task_type: str = "retrieval_document") -> list[float]:
+        """
+        task_type matters for embedding quality, not correctness - using
+        the wrong one doesn't error, it just silently produces worse
+        search results. Documents being stored should use the default
+        "retrieval_document". A question being embedded at query time
+        should pass task_type="retrieval_query" instead.
+        """
         self._ensure_configured()
         result = genai.embed_content(
             model=EMBEDDING_MODEL,
             content=text,
-            task_type="retrieval_document",
+            task_type=task_type,
             output_dimensionality=EMBEDDING_DIMENSIONS,
         )
         return result["embedding"]

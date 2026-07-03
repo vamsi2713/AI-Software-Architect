@@ -2,9 +2,10 @@
 Qdrant Cloud client wrapper.
 """
 
+import hashlib
 from qdrant_client import QdrantClient
 from qdrant_client.http.exceptions import UnexpectedResponse
-from qdrant_client.models import Distance, VectorParams, PointStruct
+from qdrant_client.models import Distance, VectorParams, PointStruct, ScoredPoint
 
 from src.core.config import Settings
 from src.core.logging_config import get_logger
@@ -58,10 +59,26 @@ class VectorDatabaseClient:
         numeric or UUID point id, so we hash the string id deterministically."""
         self.connect()
         self.ensure_collection()
-        point_id = abs(hash(node_id)) % (10**12)
+        point_id = int(hashlib.sha256(node_id.encode("utf-8")).hexdigest(), 16) % (10**12)
         self._client.upsert(
             collection_name=COLLECTION_NAME,
             points=[PointStruct(id=point_id, vector=vector, payload={**payload, "okf_id": node_id})],
+        )
+
+    def search(self, query_vector: list[float], top_k: int = 5) -> list[ScoredPoint]:
+        """
+        Finds the top_k nodes whose embeddings are most semantically
+        similar to the given query vector. Returns Qdrant's ScoredPoint
+        objects directly - each has .payload (the node properties we
+        stored, including "okf_id") and .score (cosine similarity, higher
+        is more similar).
+        """
+        self.connect()
+        self.ensure_collection()
+        return self._client.search(
+            collection_name=COLLECTION_NAME,
+            query_vector=query_vector,
+            limit=top_k,
         )
 
     @property

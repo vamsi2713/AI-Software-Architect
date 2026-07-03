@@ -87,3 +87,24 @@ class GraphDatabaseClient:
                     """ % rel.relationship_type,
                     {"from_id": rel.from_id, "to_id": rel.to_id},
                 )
+    def get_related_nodes(self, node_id: str, depth: int = 1) -> list[dict]:
+        """
+        Given a node ID, finds directly connected nodes in either
+        direction - e.g. things this node CALLS, things that CALL this
+        node, its containing file/class. depth=1 means one hop only;
+        we keep this shallow for now to avoid pulling in huge, noisy
+        subgraphs for highly-connected nodes.
+        """
+        self.connect()
+        with self._driver.session() as session:
+            result = session.run(
+                """
+                MATCH (start {id: $node_id})-[r]-(related)
+                RETURN related.id AS id, related.name AS name,
+                       type(r) AS relationship_type,
+                       startNode(r).id AS from_id, endNode(r).id AS to_id
+                LIMIT 25
+                """,
+                {"node_id": node_id},
+            )
+            return [record.data() for record in result]
