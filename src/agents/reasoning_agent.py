@@ -79,6 +79,7 @@ AGENT_SYSTEM_PROMPTS = {
 class ReasoningState(TypedDict):
     question: str
     context: list[dict]
+    history: list[dict]  # prior [{"role": ..., "content": ...}, ...] messages in this conversation
     agent_type: str
     answer: str
 
@@ -99,7 +100,9 @@ def _format_context(context: list[dict]) -> str:
 
 
 def _classify_node(state: ReasoningState, groq_client: GroqClient) -> ReasoningState:
-    raw = groq_client.generate(CLASSIFY_SYSTEM_PROMPT, state["question"])
+    history_text = _format_history(state.get("history", []))
+    classify_prompt = f"{history_text}Question: {state['question']}"
+    raw = groq_client.generate(CLASSIFY_SYSTEM_PROMPT, classify_prompt)
     agent_type = raw.strip().lower()
     if agent_type not in AGENT_TYPES:
         logger.warning("Unrecognized agent_type %r from classifier, defaulting to code_analysis", raw)
@@ -111,9 +114,23 @@ def _route(state: ReasoningState) -> str:
     return state["agent_type"]
 
 
+def _format_history(history: list[dict]) -> str:
+    if not history:
+        return ""
+    lines = ["Prior conversation in this session:"]
+    for msg in history:
+        speaker = "User" if msg["role"] == "user" else "Assistant"
+        lines.append(f"{speaker}: {msg['content']}")
+    return "\n".join(lines) + "\n\n"
+
+
 def _agent_node(state: ReasoningState, groq_client: GroqClient, agent_type: str) -> ReasoningState:
     context_text = _format_context(state["context"])
-    user_prompt = f"Question: {state['question']}\n\nRetrieved context:\n{context_text}"
+    history_text = _format_history(state.get("history", []))
+    user_prompt = (
+        f"{history_text}"
+        f"Question: {state['question']}\n\nRetrieved context:\n{context_text}"
+    )
     answer = groq_client.generate(AGENT_SYSTEM_PROMPTS[agent_type], user_prompt)
     return {**state, "answer": answer}
 

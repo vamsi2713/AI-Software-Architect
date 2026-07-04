@@ -15,6 +15,8 @@ from src.api.ingest import router as ingest_router
 from src.api.query import router as query_router
 from src.api.impact import router as impact_router
 from fastapi.middleware.cors import CORSMiddleware
+from src.core.dependencies import get_relational_db
+from src.api.conversations import router as conversations_router
 
 configure_logging()
 logger = get_logger(__name__)
@@ -25,6 +27,7 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     logger.info("%s starting up in %s mode", settings.app_name, settings.environment)
+    get_relational_db().initialize_schema()
     yield
     logger.info("%s shutting down", settings.app_name)
 
@@ -49,6 +52,7 @@ app.include_router(parse_router)
 app.include_router(ingest_router)
 app.include_router(query_router)
 app.include_router(impact_router)
+app.include_router(conversations_router)
 
 
 @app.get("/")

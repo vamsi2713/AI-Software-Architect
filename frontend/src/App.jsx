@@ -3,6 +3,66 @@ import "./App.css";
 
 const API_BASE = "https://ai-software-architect.onrender.com";
 
+function UploadTab() {
+  const [file, setFile] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
+
+  const runUpload = async () => {
+    if (!file) return;
+    setLoading(true);
+    setError(null);
+    setResult(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(`${API_BASE}/ingest/upload`, {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok)
+        throw new Error(data.detail || `Server returned ${res.status}`);
+      setResult(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div>
+      <p>Upload a .zip of a Python codebase to analyze it.</p>
+      <div className="input-row">
+        <input
+          type="file"
+          accept=".zip"
+          onChange={(e) => setFile(e.target.files[0])}
+        />
+        <button onClick={runUpload} disabled={loading || !file}>
+          {loading ? "Ingesting..." : "Upload & Analyze"}
+        </button>
+      </div>
+
+      {error && <p className="error">Error: {error}</p>}
+
+      {result && (
+        <div className="result">
+          <p>Ingestion complete:</p>
+          <ul>
+            <li>Files processed: {result.files_processed}</li>
+            <li>Nodes written: {result.nodes_written}</li>
+            <li>Relationships written: {result.relationships_written}</li>
+            <li>Embedding failures: {result.embedding_failures}</li>
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function QueryTab() {
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
@@ -171,9 +231,17 @@ function App() {
         >
           Impact Analysis
         </button>
+        <button
+          className={tab === "upload" ? "active" : ""}
+          onClick={() => setTab("upload")}
+        >
+          Upload
+        </button>
       </div>
 
-      {tab === "query" ? <QueryTab /> : <ImpactTab />}
+      {tab === "query" && <QueryTab />}
+      {tab === "impact" && <ImpactTab />}
+      {tab === "upload" && <UploadTab />}
     </div>
   );
 }
