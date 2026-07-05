@@ -1,85 +1,109 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import "./App.css";
 
 const API_BASE = "https://ai-software-architect.onrender.com";
 
-function UploadTab() {
-  const [file, setFile] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState(null);
-  const [error, setError] = useState(null);
-
-  const runUpload = async () => {
-    if (!file) return;
-    setLoading(true);
-    setError(null);
-    setResult(null);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch(`${API_BASE}/ingest/upload`, {
-        method: "POST",
-        body: formData,
-      });
-      const data = await res.json();
-      if (!res.ok)
-        throw new Error(data.detail || `Server returned ${res.status}`);
-      setResult(data);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+function Sidebar({ conversations, activeId, onSelect, onNewChat }) {
   return (
-    <div>
-      <p>Upload a .zip of a Python codebase to analyze it.</p>
-      <div className="input-row">
-        <input
-          type="file"
-          accept=".zip"
-          onChange={(e) => setFile(e.target.files[0])}
-        />
-        <button onClick={runUpload} disabled={loading || !file}>
-          {loading ? "Ingesting..." : "Upload & Analyze"}
-        </button>
+    <div className="sidebar">
+      <button className="new-chat-btn" onClick={onNewChat}>
+        + New Chat
+      </button>
+      <div className="conversation-list">
+        {conversations.map((c) => (
+          <div
+            key={c.id}
+            className={`conversation-item ${c.id === activeId ? "active" : ""}`}
+            onClick={() => onSelect(c.id)}
+          >
+            {c.title}
+          </div>
+        ))}
       </div>
-
-      {error && <p className="error">Error: {error}</p>}
-
-      {result && (
-        <div className="result">
-          <p>Ingestion complete:</p>
-          <ul>
-            <li>Files processed: {result.files_processed}</li>
-            <li>Nodes written: {result.nodes_written}</li>
-            <li>Relationships written: {result.relationships_written}</li>
-            <li>Embedding failures: {result.embedding_failures}</li>
-          </ul>
-        </div>
-      )}
     </div>
   );
 }
 
-function QueryTab() {
+function ChatTab() {
+  const [conversations, setConversations] = useState([]);
+  const [conversationId, setConversationId] = useState(null);
+  const [messages, setMessages] = useState([]);
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
 
-  const runQuery = async () => {
+  const loadConversations = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/conversations`);
+      const data = await res.json();
+      setConversations(data);
+    } catch (err) {
+      console.error("Failed to load conversations", err);
+    }
+  };
+
+  useEffect(() => {
+    loadConversations();
+  }, []);
+
+  const selectConversation = async (id) => {
+    setConversationId(id);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/conversations/${id}/messages`);
+      const data = await res.json();
+      setMessages(data);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const startNewChat = () => {
+    setConversationId(null);
+    setMessages([]);
+    setError(null);
+  };
+
+  const askQuestion = async () => {
     if (!question.trim()) return;
+    const currentQuestion = question;
+    setQuestion("");
     setLoading(true);
     setError(null);
-    setResult(null);
+
+    // Optimistically show the user's message right away, before the
+    // server responds - makes the chat feel responsive rather than
+    // frozen while retrieval + reasoning runs.
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", content: currentQuestion },
+    ]);
+
     try {
-      const url = `${API_BASE}/query?question=${encodeURIComponent(question)}`;
-      const res = await fetch(url, { method: "POST" });
+      const params = new URLSearchParams({ question: currentQuestion });
+      if (conversationId) params.set("conversation_id", conversationId);
+
+      const res = await fetch(`${API_BASE}/query?${params}`, {
+        method: "POST",
+      });
       if (!res.ok) throw new Error(`Server returned ${res.status}`);
       const data = await res.json();
-      setResult(data);
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: data.answer,
+          agent_type: data.agent_used,
+        },
+      ]);
+
+      // First message in a brand new conversation - now we know its
+      // real id, and it should appear in the sidebar going forward.
+      if (!conversationId) {
+        setConversationId(data.conversation_id);
+        loadConversations();
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -88,37 +112,46 @@ function QueryTab() {
   };
 
   return (
-    <div>
-      <div className="input-row">
-        <input
-          type="text"
-          placeholder="Ask a question about your codebase..."
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && runQuery()}
-        />
-        <button onClick={runQuery} disabled={loading}>
-          {loading ? "Thinking..." : "Ask"}
-        </button>
-      </div>
-
-      {error && <p className="error">Error: {error}</p>}
-
-      {result && (
-        <div className="result">
-          {result.agent_used && (
-            <span className="badge">{result.agent_used.replace("_", " ")}</span>
+    <div className="chat-layout">
+      <Sidebar
+        conversations={conversations}
+        activeId={conversationId}
+        onSelect={selectConversation}
+        onNewChat={startNewChat}
+      />
+      <div className="chat-main">
+        <div className="messages">
+          {messages.length === 0 && (
+            <p className="empty-state">
+              Ask a question about your codebase to get started.
+            </p>
           )}
-          <p className="answer">{result.answer}</p>
-
-          <details>
-            <summary>
-              Raw retrieved context ({result.results?.length ?? 0} matches)
-            </summary>
-            <pre>{JSON.stringify(result.results, null, 2)}</pre>
-          </details>
+          {messages.map((m, i) => (
+            <div key={i} className={`message ${m.role}`}>
+              {m.agent_type && (
+                <span className="badge">{m.agent_type.replace("_", " ")}</span>
+              )}
+              <p>{m.content}</p>
+            </div>
+          ))}
+          {loading && <p className="thinking">Thinking...</p>}
         </div>
-      )}
+
+        {error && <p className="error">Error: {error}</p>}
+
+        <div className="input-row">
+          <input
+            type="text"
+            placeholder="Ask a question about your codebase..."
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && askQuestion()}
+          />
+          <button onClick={askQuestion} disabled={loading}>
+            {loading ? "..." : "Ask"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -149,7 +182,7 @@ function ImpactTab() {
   };
 
   return (
-    <div>
+    <div className="simple-tab">
       <div className="input-row">
         <input
           type="text"
@@ -212,6 +245,66 @@ function ImpactTab() {
   );
 }
 
+function UploadTab() {
+  const [file, setFile] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
+
+  const runUpload = async () => {
+    if (!file) return;
+    setLoading(true);
+    setError(null);
+    setResult(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(`${API_BASE}/ingest/upload`, {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok)
+        throw new Error(data.detail || `Server returned ${res.status}`);
+      setResult(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="simple-tab">
+      <p>Upload a .zip of a Python codebase to analyze it.</p>
+      <div className="input-row">
+        <input
+          type="file"
+          accept=".zip"
+          onChange={(e) => setFile(e.target.files[0])}
+        />
+        <button onClick={runUpload} disabled={loading || !file}>
+          {loading ? "Ingesting..." : "Upload & Analyze"}
+        </button>
+      </div>
+
+      {error && <p className="error">Error: {error}</p>}
+
+      {result && (
+        <div className="result">
+          <p>Ingestion complete:</p>
+          <ul>
+            <li>Files processed: {result.files_processed}</li>
+            <li>Nodes written: {result.nodes_written}</li>
+            <li>Relationships written: {result.relationships_written}</li>
+            <li>Embedding failures: {result.embedding_failures}</li>
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function App() {
   const [tab, setTab] = useState("query");
 
@@ -239,7 +332,7 @@ function App() {
         </button>
       </div>
 
-      {tab === "query" && <QueryTab />}
+      {tab === "query" && <ChatTab />}
       {tab === "impact" && <ImpactTab />}
       {tab === "upload" && <UploadTab />}
     </div>
